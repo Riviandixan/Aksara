@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Search, Plus, Trash2, Check, Loader2,
   BookOpen, Sparkles, Hand, X,
@@ -159,7 +159,7 @@ function QuestionCard({ q, isAdded, onAdd, onRemove }) {
 }
 
 // ── Right Panel ───────────────────────────────────────────────
-function PackagePanel({ form, setForm, selectedQuestions, onRemove, onSave, saving, languages }) {
+function PackagePanel({ form, setForm, selectedQuestions, onRemove, onSave, saving, languages, isEdit }) {
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
   return (
@@ -228,7 +228,7 @@ function PackagePanel({ form, setForm, selectedQuestions, onRemove, onSave, savi
         <button onClick={onSave} disabled={saving || !form.title || !form.language_id}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-extrabold text-sm border-2 border-black bg-[#58CC02] text-white shadow-[3px_3px_0px_#000] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_#000] active:translate-x-[3px] active:translate-y-[3px] active:shadow-none transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-x-0 disabled:translate-y-0">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-          Simpan Paket
+          {isEdit ? 'Simpan Perubahan' : 'Simpan Paket'}
         </button>
       </div>
     </div>
@@ -238,10 +238,13 @@ function PackagePanel({ form, setForm, selectedQuestions, onRemove, onSave, savi
 // ── Main Page ─────────────────────────────────────────────────
 export default function CreatePackage() {
   const navigate                          = useNavigate()
+  const { id }                            = useParams()   // ada saat edit mode
+  const isEdit                            = !!id
   const [languages, setLanguages]         = useState([])
   const [bankQuestions, setBankQuestions] = useState([])
   const [selectedQuestions, setSelected] = useState([])
   const [saving, setSaving]               = useState(false)
+  const [loadingPkg, setLoadingPkg]       = useState(isEdit)
   const [showModal, setShowModal]         = useState(false)
   const [search, setSearch]               = useState('')
   const [typeFilter, setTypeFilter]       = useState('')
@@ -253,6 +256,33 @@ export default function CreatePackage() {
     api.get('/languages').then((r) => setLanguages(r.data.data))
     bankService.list().then((r) => setBankQuestions(r.data.data))
   }, [])
+
+  // Load existing package data saat edit mode
+  useEffect(() => {
+    if (!isEdit) return
+    packageService.get(id)
+      .then((r) => {
+        const pkg = r.data.data
+        setForm({
+          title:       pkg.title,
+          description: pkg.description || '',
+          language_id: String(pkg.language_id),
+          is_public:   !!pkg.is_public,
+        })
+        // Reconstruct selected questions dari data paket
+        if (pkg.questions?.length) {
+          setSelected(pkg.questions.map((q) => ({
+            id:            q.id,
+            type:          q.type,
+            question_data: q.question_data,
+            language_name: pkg.language_name,
+            language_code: pkg.language_code,
+            language_id:   pkg.language_id,
+          })))
+        }
+      })
+      .finally(() => setLoadingPkg(false))
+  }, [id, isEdit])
 
   const filtered = bankQuestions.filter((q) => {
     const data    = typeof q.question_data === 'string' ? JSON.parse(q.question_data) : q.question_data
@@ -271,10 +301,20 @@ export default function CreatePackage() {
     if (!form.title || !form.language_id) return
     setSaving(true)
     try {
-      await packageService.create({ ...form, question_ids: selectedIds })
+      if (isEdit) {
+        await packageService.update(id, { ...form, question_ids: selectedIds })
+      } else {
+        await packageService.create({ ...form, question_ids: selectedIds })
+      }
       navigate('/quiz-packages')
     } finally { setSaving(false) }
   }
+
+  if (loadingPkg) return (
+    <div className="flex justify-center items-center h-full">
+      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+    </div>
+  )
 
   return (
     <div className="flex flex-col h-full w-full bg-[#FAF9F6]">
@@ -294,7 +334,7 @@ export default function CreatePackage() {
             <ArrowLeft className="w-5 h-5 text-black" />
           </button>
           <div>
-            <h1 className="text-lg font-extrabold text-black">Buat Paket Soal</h1>
+            <h1 className="text-lg font-extrabold text-black">{isEdit ? 'Edit Paket Soal' : 'Buat Paket Soal'}</h1>
             <p className="text-xs font-medium text-gray-500 mt-0.5">Pilih soal dari bank soal atau buat soal baru</p>
           </div>
         </div>
@@ -374,7 +414,7 @@ export default function CreatePackage() {
         {/* RIGHT */}
         <div className="w-[300px] shrink-0 border-l-2 border-black overflow-y-auto p-4 bg-[#FAF9F6]">
           <PackagePanel form={form} setForm={setForm} selectedQuestions={selectedQuestions}
-            onRemove={handleRemove} onSave={handleSave} saving={saving} languages={languages} />
+            onRemove={handleRemove} onSave={handleSave} saving={saving} languages={languages} isEdit={isEdit} />
         </div>
       </div>
     </div>

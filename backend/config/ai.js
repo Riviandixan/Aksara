@@ -31,4 +31,25 @@ async function generateContent(prompt) {
   return { response: { text: () => text } };
 }
 
-module.exports = { generateContent };
+// Versi tanpa response_format untuk bahasa non-Latin (Korean, Japanese, Chinese, Russian, dll)
+// response_format: json_object di Groq kadang strip karakter Unicode non-ASCII
+async function generateContentRaw(prompt) {
+  const completion = await getClient().chat.completions.create({
+    model:       'llama-3.3-70b-versatile',
+    temperature: 0.7,
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant. Always respond with valid JSON only. Use actual Unicode characters for all scripts (Korean Hangul, Japanese Kanji/Kana, Chinese Hanzi, Russian Cyrillic, etc). Never use romanization or \\uXXXX escape sequences.',
+      },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  let text = completion.choices[0].message.content.trim();
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  return { response: { text: () => text } };
+}
+
+module.exports = { generateContent, generateContentRaw };

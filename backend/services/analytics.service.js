@@ -58,7 +58,55 @@ async function getAnalytics(userId) {
     [userId]
   )
 
-  return { summary, scoreTrend, perLanguage, perType, weeklyActivity }
+  // Battle — ringkasan
+  const [[battleSummary]] = await pool.query(
+    `SELECT
+       COUNT(*)                                        AS total_battles,
+       COALESCE(SUM(bp.correct), 0)                   AS total_correct,
+       COALESCE(SUM(br.question_count), 0)            AS total_questions,
+       COUNT(CASE WHEN bp.rank = 1 THEN 1 END)        AS total_wins,
+       COALESCE(ROUND(AVG(bp.score)), 0)              AS avg_score
+     FROM battle_participants bp
+     JOIN battle_rooms br ON br.id = bp.room_id
+     WHERE bp.user_id = ? AND br.status = 'finished'`,
+    [userId]
+  )
+  battleSummary.win_rate = battleSummary.total_battles
+    ? Math.round((battleSummary.total_wins / battleSummary.total_battles) * 100)
+    : 0
+  battleSummary.accuracy = battleSummary.total_questions
+    ? Math.round((battleSummary.total_correct / battleSummary.total_questions) * 100)
+    : 0
+
+  // Battle — tren skor 30 hari
+  const [battleTrend] = await pool.query(
+    `SELECT DATE(br.finished_at) AS date,
+            ROUND(AVG(bp.score)) AS avg_score,
+            COUNT(*) AS battles
+     FROM battle_participants bp
+     JOIN battle_rooms br ON br.id = bp.room_id
+     WHERE bp.user_id = ? AND br.status = 'finished'
+       AND br.finished_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+     GROUP BY DATE(br.finished_at)
+     ORDER BY date`,
+    [userId]
+  )
+
+  // Battle — riwayat 10 terakhir
+  const [battleHistory] = await pool.query(
+    `SELECT br.finished_at, br.question_count, l.name AS language_name,
+            bp.score, bp.correct, bp.rank,
+            (SELECT COUNT(*) FROM battle_participants WHERE room_id = br.id) AS total_players
+     FROM battle_participants bp
+     JOIN battle_rooms br ON br.id = bp.room_id
+     LEFT JOIN languages l ON l.id = br.language_id
+     WHERE bp.user_id = ? AND br.status = 'finished'
+     ORDER BY br.finished_at DESC
+     LIMIT 10`,
+    [userId]
+  )
+
+  return { summary, scoreTrend, perLanguage, perType, weeklyActivity, battleSummary, battleTrend, battleHistory }
 }
 
 module.exports = { getAnalytics }

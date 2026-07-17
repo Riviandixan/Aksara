@@ -49,6 +49,7 @@ function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/quiz-packages" element={<QuizPackages />} />
             <Route path="/quiz-packages/create" element={<CreatePackage />} />
+            <Route path="/quiz-packages/:id/edit" element={<CreatePackage />} />
             <Route path="/quiz-packages/:id" element={<PackageDetail />} />
             <Route path="/quiz-packages/:id/play" element={<PackageQuiz />} />
             <Route path="/exam" element={<Exam />} />

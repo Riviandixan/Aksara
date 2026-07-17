@@ -1,39 +1,115 @@
 import { useState, useEffect } from 'react'
-import { Flame, Zap } from 'lucide-react'
+import { Flame, Zap, Crown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import api from '@/services/api'
 import { Skeleton } from '@/components/Skeleton'
 
 const RANK_CONFIG = {
-  1: { emoji: '🥇', podiumBg: 'bg-yellow-300', height: 80 },
-  2: { emoji: '🥈', podiumBg: 'bg-slate-200',  height: 60 },
-  3: { emoji: '🥉', podiumBg: 'bg-orange-200', height: 48 },
+  1: {
+    podiumBg: 'from-yellow-300 to-yellow-400',
+    border: 'border-yellow-500',
+    glow: 'shadow-[0_0_24px_6px_rgba(234,179,8,0.45)]',
+    avatarBorder: 'border-yellow-400',
+    avatarSize: 'w-20 h-20',
+    podiumHeight: 96,
+    label: '🥇',
+    textColor: 'text-yellow-700',
+  },
+  2: {
+    podiumBg: 'from-slate-300 to-slate-400',
+    border: 'border-slate-400',
+    glow: 'shadow-[0_0_16px_4px_rgba(148,163,184,0.4)]',
+    avatarBorder: 'border-slate-400',
+    avatarSize: 'w-16 h-16',
+    podiumHeight: 72,
+    label: '🥈',
+    textColor: 'text-slate-600',
+  },
+  3: {
+    podiumBg: 'from-orange-300 to-orange-400',
+    border: 'border-orange-400',
+    glow: 'shadow-[0_0_16px_4px_rgba(251,146,60,0.35)]',
+    avatarBorder: 'border-orange-400',
+    avatarSize: 'w-16 h-16',
+    podiumHeight: 56,
+    label: '🥉',
+    textColor: 'text-orange-700',
+  },
 }
 
 // ── Podium card (rank 1, 2, 3) ────────────────────────────────
-function PodiumCard({ entry }) {
+function PodiumCard({ entry, delay = 0 }) {
   const cfg = RANK_CONFIG[entry.rank]
+  const isFirst = entry.rank === 1
+
   return (
-    <div className="flex flex-col items-center gap-2 flex-1">
+    <div
+      className="flex flex-col items-center flex-1"
+      style={{ animation: `podiumIn 0.5s ${delay}s both ease-out` }}
+    >
+      {/* Crown for rank 1 */}
+      {isFirst && (
+        <div className="mb-1 animate-bounce">
+          <Crown className="w-7 h-7 text-yellow-500 fill-yellow-400 drop-shadow-md" />
+        </div>
+      )}
+
       {/* Avatar */}
-      <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-black shadow-[3px_3px_0px_#000] shrink-0">
+      <div className={cn(
+        'relative rounded-full overflow-hidden border-4 shrink-0 transition-transform duration-300 hover:scale-105',
+        cfg.avatarSize,
+        cfg.avatarBorder,
+        cfg.glow,
+      )}>
         <img src={entry.avatar_url} alt={entry.username} className="w-full h-full object-cover" />
-        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-base leading-none">{cfg.emoji}</span>
+        {entry.isMe && (
+          <div className="absolute inset-0 rounded-full ring-2 ring-[#58CC02] ring-offset-1" />
+        )}
       </div>
-      <p className={cn('text-xs font-extrabold truncate max-w-[80px] text-center mt-1', entry.isMe ? 'text-[#58CC02]' : 'text-black')}>
-        {entry.username}{entry.isMe && ' 👈'}
+
+      {/* Medal badge */}
+      <div className={cn(
+        'mt-2 text-xl leading-none',
+        isFirst ? 'text-2xl' : 'text-lg'
+      )}>
+        {cfg.label}
+      </div>
+
+      {/* Username */}
+      <p className={cn(
+        'font-extrabold truncate max-w-[90px] text-center text-xs mt-0.5',
+        entry.isMe ? 'text-[#58CC02]' : 'text-black'
+      )}>
+        {entry.username}
       </p>
-      <div className="flex items-center gap-0.5 bg-yellow-100 border border-black rounded-full px-2 py-0.5">
+      {entry.isMe && (
+        <span className="text-[9px] font-extrabold bg-[#58CC02] text-white px-1.5 py-0.5 rounded-full border border-black mt-0.5">Kamu 👈</span>
+      )}
+
+      {/* XP */}
+      <div className="flex items-center gap-0.5 bg-yellow-50 border border-yellow-300 rounded-full px-2 py-0.5 mt-1">
         <Zap className="w-3 h-3 text-yellow-500" />
-        <span className="text-xs font-extrabold text-black">{entry.xp.toLocaleString()}</span>
+        <span className="text-[11px] font-extrabold text-black">{entry.xp.toLocaleString()}</span>
       </div>
+
+      {/* Streak */}
+      {entry.streak > 0 && (
+        <div className="flex items-center gap-0.5 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5 mt-1">
+          <Flame className="w-3 h-3 text-orange-500" />
+          <span className="text-[11px] font-extrabold text-orange-700">{entry.streak}</span>
+        </div>
+      )}
+
       {/* Podium block */}
       <div
-        className={cn('w-full rounded-t-xl border-2 border-black border-b-0 flex items-center justify-center font-black text-2xl text-black shadow-[3px_0px_0px_#000]', cfg.podiumBg)}
-        style={{ height: cfg.height }}
+        className={cn(
+          'w-full rounded-t-2xl border-2 border-b-0 border-black flex items-center justify-center mt-2',
+          `bg-gradient-to-b ${cfg.podiumBg}`,
+        )}
+        style={{ height: cfg.podiumHeight }}
       >
-        {entry.rank}
+        <span className={cn('font-black text-3xl', cfg.textColor)}>{entry.rank}</span>
       </div>
     </div>
   )
@@ -145,13 +221,19 @@ export default function Leaderboard() {
           <>
             {/* ── Podium top 3 ── */}
             {podiumOrder.length > 0 && (
-              <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] p-6">
-                <p className="text-xs font-extrabold text-black/40 uppercase tracking-widest text-center mb-4">🏆 Top 3</p>
-                <div className="flex items-end gap-3 px-2">
-                  {podiumOrder.map((e) => (
-                    <PodiumCard key={e.id} entry={e} />
+              <div className="bg-gradient-to-b from-indigo-50 to-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] px-4 pt-5 pb-0 overflow-hidden">
+                <p className="text-xs font-extrabold text-black/40 uppercase tracking-widest text-center mb-5">✨ Hall of Fame ✨</p>
+                <div className="flex items-end gap-2">
+                  {podiumOrder.map((e, i) => (
+                    <PodiumCard key={e.id} entry={e} delay={i * 0.1} />
                   ))}
                 </div>
+                <style>{`
+                  @keyframes podiumIn {
+                    from { opacity: 0; transform: translateY(24px); }
+                    to   { opacity: 1; transform: translateY(0); }
+                  }
+                `}</style>
               </div>
             )}
 

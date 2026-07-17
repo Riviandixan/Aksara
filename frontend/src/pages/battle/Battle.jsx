@@ -140,6 +140,11 @@ export default function Battle() {
 
     s.on('battle:generating', () => setPhase(PHASE.GENERATING))
 
+    s.on('battle:error', ({ message }) => {
+      setError(message || 'Terjadi kesalahan')
+      setPhase(PHASE.LOBBY)
+    })
+
     s.on('battle:countdown', ({ seconds }) => {
       setPhase(PHASE.COUNTDOWN)
       setCountdownSec(seconds || 3)
@@ -176,7 +181,8 @@ export default function Battle() {
     return () => {
       s.off('connect'); s.off('disconnect')
       s.off('battle:lobby');    s.off('battle:generating')
-      s.off('battle:countdown'); s.off('battle:question')
+      s.off('battle:error');    s.off('battle:countdown')
+      s.off('battle:question')
       s.off('battle:reveal');   s.off('battle:scores')
       s.off('battle:result');   s.off('battle:player_left')
       destroySocket()
@@ -281,9 +287,9 @@ export default function Battle() {
     if (answered || !question || !room?.code) return
     setSelected(option)
     setAnswered(true)
-    const res = await submitAnswer(room.code, question.order_index, option)
+    const res = await submitAnswer(room.code, question.order_index, option, timeLeft)
     setAnsResult(res)
-  }, [answered, question, room?.code])
+  }, [answered, question, room?.code, timeLeft])
 
   const copyCode = () => {
     navigator.clipboard.writeText(room?.code || '')
@@ -760,7 +766,7 @@ export default function Battle() {
             <p className="text-center text-sm text-gray-400 font-medium">Menunggu soal berikutnya...</p>
           )}
           {answered && ansResult?.is_correct && (
-            <p className="text-center text-sm text-[#58CC02] font-extrabold">+100 pts 🎉</p>
+            <p className="text-center text-sm text-[#58CC02] font-extrabold">+{ansResult.points ?? 100} pts 🎉</p>
           )}
         </div>
       </div>

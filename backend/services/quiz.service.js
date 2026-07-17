@@ -1,5 +1,5 @@
 const { pool }            = require('../config/db');
-const { generateContent } = require('../config/ai');
+const { generateContentRaw } = require('../config/ai');
 
 const XP_PER_CORRECT  = 10;
 const PASS_THRESHOLD  = 70; // % minimum untuk unlock level berikutnya
@@ -28,6 +28,16 @@ IMPORTANT rules:
 `.trim();
 }
 
+// --- Shuffle array (Fisher-Yates) ---
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // --- Generate & simpan soal ke DB ---
 async function generateQuizzes(userId, levelId) {
   // Verifikasi level milik user dan statusnya unlocked
@@ -48,37 +58,63 @@ async function generateQuizzes(userId, levelId) {
     const err = new Error('Level is locked'); err.status = 403; throw err;
   }
 
-  // Kalau soal sudah ada, langsung return (tidak generate ulang)
+  // Kalau soal sudah ada dan valid, langsung return soal pertama saja
   const [existing] = await pool.query(
     'SELECT id, type, question_data, order_index FROM quizzes WHERE level_id = ? ORDER BY order_index',
     [levelId]
   );
-  if (existing.length) return existing.map(sanitizeQuiz);
+  if (existing.length) {
+    const sanitized = existing.map(sanitizeQuiz);
+    const hasEmpty = sanitized.some(({ question_data: d }) =>
+      Object.values(d).some((v) => v === '' || (Array.isArray(v) && v.some((s) => s === '')))
+    );
+    if (!hasEmpty) return { total: sanitized.length, first_question: sanitized[0] };
+    await pool.query('DELETE FROM quizzes WHERE level_id = ?', [levelId]);
+  }
 
-  // Generate via AI
-  const result    = await generateContent(buildQuizPrompt(level.title, level.language_name, level.base_level));
-  const rawText   = result.response.text();
-
-  // Parse JSON — coba langsung dulu, lalu fallback regex
+  // Generate via AI — retry up to 3x
+  const prompt = buildQuizPrompt(level.title, level.language_name, level.base_level);
   let questions;
-  try {
-    const parsed = JSON.parse(rawText);
-    // response_format json_object bisa wrap dalam object
-    questions = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.data || Object.values(parsed)[0]);
-  } catch {
-    const match = rawText.match(/\[\s*\{[\s\S]*?\}\s*\]/);
-    if (!match) {
-      console.error('AI raw response:', rawText);
-      throw new Error('AI returned invalid JSON format');
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const rawText = (await generateContentRaw(prompt)).response.text();
+    console.log(`[quiz] attempt ${attempt} raw:`, rawText.slice(0, 200));
+
+    let parsed;
+    try {
+      const p = JSON.parse(rawText);
+      parsed = Array.isArray(p) ? p : (p.questions || p.data || Object.values(p)[0]);
+    } catch {
+      const match = rawText.match(/\[\s*\{[\s\S]*?\}\s*\]/);
+      if (match) try { parsed = JSON.parse(match[0]); } catch { /* ignore */ }
     }
-    questions = JSON.parse(match[0]);
-  }
-  if (!Array.isArray(questions) || !questions.length) {
-    throw new Error('AI returned invalid JSON format');
+
+    if (!Array.isArray(parsed) || !parsed.length) {
+      console.error(`[quiz] attempt ${attempt}: invalid JSON`);
+      continue;
+    }
+
+    const hasEmpty = parsed.some(({ question_data: d = {} }) =>
+      Object.values(d).some((v) => v === '' || (Array.isArray(v) && v.some((s) => s === '')))
+    );
+    if (hasEmpty) {
+      console.error(`[quiz] attempt ${attempt}: empty fields`);
+      continue;
+    }
+
+    questions = parsed;
+    break;
   }
 
-  // Bulk insert
-  const values = questions.map((q) => [levelId, q.type, JSON.stringify(q.question_data), q.order_index]);
+  if (!questions) throw new Error('Gagal membuat soal, silakan coba lagi');
+
+  // Shuffle options untuk multiple_choice agar jawaban benar tidak selalu di posisi A
+  const values = questions.map((q) => {
+    let qData = q.question_data;
+    if (q.type === 'multiple_choice' && Array.isArray(qData.options)) {
+      qData = { ...qData, options: shuffle(qData.options) };
+    }
+    return [levelId, q.type, JSON.stringify(qData), q.order_index];
+  });
   await pool.query(
     'INSERT INTO quizzes (level_id, type, question_data, order_index) VALUES ?',
     [values]
@@ -88,16 +124,50 @@ async function generateQuizzes(userId, levelId) {
     'SELECT id, type, question_data, order_index FROM quizzes WHERE level_id = ? ORDER BY order_index',
     [levelId]
   );
-  return inserted.map(sanitizeQuiz);
+  const sanitized = inserted.map(sanitizeQuiz);
+  return { total: sanitized.length, first_question: sanitized[0] };
 }
 
-// Kirim correct_answer ke client — learning path quiz butuh feedback langsung per soal
+async function getQuestion(userId, levelId, orderIndex) {
+  const [rows] = await pool.query(
+    `SELECT q.id, q.type, q.question_data, q.order_index
+     FROM quizzes q
+     JOIN levels l ON l.id = q.level_id
+     JOIN learning_paths lp ON lp.id = l.learning_path_id
+     WHERE q.level_id = ? AND q.order_index = ? AND lp.user_id = ? LIMIT 1`,
+    [levelId, orderIndex, userId]
+  );
+  if (!rows[0]) { const e = new Error('Soal tidak ditemukan'); e.status = 404; throw e; }
+  return sanitizeQuiz(rows[0]);
+}
+
 function sanitizeQuiz(quiz) {
-  const data = typeof quiz.question_data === 'string'
+  const raw = typeof quiz.question_data === 'string'
     ? JSON.parse(quiz.question_data)
     : quiz.question_data;
+  const { correct_answer, ...safeData } = raw;
+  return { id: quiz.id, type: quiz.type, order_index: quiz.order_index, question_data: safeData };
+}
 
-  return { id: quiz.id, type: quiz.type, order_index: quiz.order_index, question_data: data };
+async function checkAnswer(userId, levelId, quizId, answer) {
+  const [rows] = await pool.query(
+    `SELECT q.id, q.question_data
+     FROM quizzes q
+     JOIN levels l ON l.id = q.level_id
+     JOIN learning_paths lp ON lp.id = l.learning_path_id
+     WHERE q.id = ? AND q.level_id = ? AND lp.user_id = ? LIMIT 1`,
+    [quizId, levelId, userId]
+  );
+  if (!rows[0]) { const e = new Error('Soal tidak ditemukan'); e.status = 404; throw e; }
+
+  const data = typeof rows[0].question_data === 'string'
+    ? JSON.parse(rows[0].question_data)
+    : rows[0].question_data;
+
+  const normalize = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(/[.,!?;:]+$/, '');
+  const isCorrect = !!data.correct_answer && normalize(answer) === normalize(data.correct_answer);
+
+  return { is_correct: isCorrect, correct_answer: data.correct_answer };
 }
 
 // --- Submit & validasi jawaban ---
@@ -248,4 +318,4 @@ async function submitAnswers(userId, levelId, answers) {
   };
 }
 
-module.exports = { generateQuizzes, submitAnswers };
+module.exports = { generateQuizzes, getQuestion, checkAnswer, submitAnswers };

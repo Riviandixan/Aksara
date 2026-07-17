@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS battle_answers (
   order_index  TINYINT UNSIGNED NOT NULL,
   user_answer  TEXT NULL,
   is_correct   TINYINT(1) NOT NULL DEFAULT 0,
+  time_left    TINYINT UNSIGNED NOT NULL DEFAULT 0,  -- sisa waktu saat menjawab (detik)
   answered_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT fk_ba_room FOREIGN KEY (room_id) REFERENCES battle_rooms(id) ON DELETE CASCADE,

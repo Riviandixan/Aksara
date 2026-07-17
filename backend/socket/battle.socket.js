@@ -1,5 +1,5 @@
 const { pool }            = require('../config/db');
-const { generateContent } = require('../config/ai');
+const { generateContentRaw } = require('../config/ai');
 const jwt                 = require('jsonwebtoken');
 
 const roomTimers   = {};  // code → timeout handle
@@ -37,62 +37,102 @@ async function buildAIQuestions(languageId, count) {
   if (!lang) throw new Error('Language not found');
 
   const prompt = `
-You are a quiz generator for ${lang.name} learners.
-Generate exactly ${count} multiple choice questions.
+You are a competitive quiz generator for ${lang.name} learners.
+Generate exactly ${count} multiple choice questions for a BATTLE/COMPETITION mode — questions must be CHALLENGING and varied.
+
 Return a JSON object with key "questions" containing an array of exactly ${count} objects.
 Each object must have this exact structure:
 {
   "order_index": <number starting from 1>,
   "type": "multiple_choice",
   "question_data": {
-    "question": "<a ${lang.name} word or short sentence using actual ${lang.name} script/characters>",
+    "question": "<a ${lang.name} sentence or phrase using actual ${lang.name} script/characters>",
     "options": ["<option1 in Indonesian>", "<option2 in Indonesian>", "<option3 in Indonesian>", "<option4 in Indonesian>"],
     "correct_answer": "<the correct Indonesian translation, must exactly match one of the options>"
   }
 }
+
 Rules:
-- Use actual ${lang.name} characters (Hangul for Korean, Kanji/Kana for Japanese, etc). Never use romanization or transliteration.
-- All 4 options must be distinct Indonesian words/phrases.
+- Use actual ${lang.name} characters (Hangul for Korean, Kanji/Kana for Japanese, Cyrillic for Russian, Hanzi for Chinese, etc). NEVER use romanization.
+- NEVER leave the "question" field empty. It MUST contain actual ${lang.name} script/characters.
+- NEVER use single basic vocabulary words (e.g. happy, cat, eat). Always use full sentences or meaningful phrases.
+- Questions must be CHALLENGING: use sentences with grammar nuance, similar-sounding words, or context-dependent meaning.
+- The 4 options must be DECEPTIVE — all plausible translations, only one is correct. Avoid obviously wrong options.
+- Mix question styles across the ${count} questions:
+  * Grammar-based (e.g. tense, particles, sentence structure)
+  * Context/nuance (e.g. formal vs informal, similar phrases with different meanings)
+  * Idioms or common expressions
+  * Longer sentences (8-15 words)
 - correct_answer must exactly match one of the 4 options (same spelling, same case).
 - No empty strings anywhere.
 `.trim();
 
-  const result = await generateContent(prompt);
-  const raw    = result.response.text();
+  let arr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const raw = (await generateContentRaw(prompt)).response.text();
+    console.log(`[battle] attempt ${attempt} raw (first 500):`, raw.slice(0, 500));
 
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    console.error('[battle] AI JSON parse error:', e.message, '\nRaw:', raw.slice(0, 300));
-    throw new Error('AI returned invalid JSON');
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) try { parsed = JSON.parse(match[0]); } catch { /* ignore */ }
+    }
+
+    if (!parsed) {
+      console.error(`[battle] attempt ${attempt}: JSON parse failed`);
+      continue;
+    }
+
+    console.log(`[battle] attempt ${attempt} parsed keys:`, Object.keys(parsed));
+
+    const candidate = Array.isArray(parsed)
+      ? parsed
+      : parsed?.questions && Array.isArray(parsed.questions)
+        ? parsed.questions
+        : Object.values(parsed).find((v) => Array.isArray(v));
+
+    if (!Array.isArray(candidate) || !candidate.length) {
+      console.error(`[battle] attempt ${attempt}: no array found. parsed:`, JSON.stringify(parsed).slice(0, 300));
+      continue;
+    }
+
+    console.log(`[battle] attempt ${attempt}: found ${candidate.length} questions, checking fields...`);
+    const badQ = candidate.find(({ question_data: d = {} }) =>
+      !d.question || d.question.trim() === '' ||
+      (d.options || []).some((o) => !o || o.trim() === '') ||
+      !d.correct_answer || d.correct_answer.trim() === ''
+    );
+    if (badQ) {
+      console.error(`[battle] attempt ${attempt}: empty fields in:`, JSON.stringify(badQ));
+      continue;
+    }
+
+    arr = candidate;
+    break;
   }
 
-  // Extract array — handle { questions: [...] } or bare array
-  let arr = Array.isArray(parsed)
-    ? parsed
-    : parsed.questions && Array.isArray(parsed.questions)
-      ? parsed.questions
-      : Object.values(parsed).find((v) => Array.isArray(v));
+  if (!arr) throw new Error('Gagal membuat soal battle, silakan coba lagi');
 
-  if (!Array.isArray(arr) || !arr.length) {
-    console.error('[battle] AI returned no questions array. Parsed:', JSON.stringify(parsed).slice(0, 300));
-    throw new Error('AI returned invalid questions');
+  // Acak posisi correct_answer di dalam options
+  function shuffleOptions(questionData) {
+    const opts = [...questionData.options]
+    for (let i = opts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [opts[i], opts[j]] = [opts[j], opts[i]];
+    }
+    return { ...questionData, options: opts };
   }
 
-  arr = arr.slice(0, count);
-
-  // ── Re-index order_index to always be 1-based ──────────────
-  // AI sometimes starts from 0 — this would break startQuestion which starts at 1
-  arr = arr.map((q, i) => ({
+  arr = arr.slice(0, count).map((q, i) => ({
     ...q,
     order_index: i + 1,
-    question_data: {
+    question_data: shuffleOptions({
       ...q.question_data,
-      // Ensure correct_answer exactly matches one of the options (trim whitespace)
       correct_answer: (q.question_data?.correct_answer || '').trim(),
       options: (q.question_data?.options || []).map((o) => (typeof o === 'string' ? o.trim() : String(o))),
-    },
+    }),
   }));
 
   console.log(`[battle] Generated ${arr.length} questions for ${lang.name}`);
@@ -294,10 +334,16 @@ module.exports = function registerBattleSocket(io) {
         io.to(code).emit('battle:generating', {});
 
         let questions;
-        if (room.source_type === 'package') {
-          questions = await buildPackageQuestions(room.source_id);
-        } else {
-          questions = await buildAIQuestions(room.language_id, room.question_count);
+        try {
+          if (room.source_type === 'package') {
+            questions = await buildPackageQuestions(room.source_id);
+          } else {
+            questions = await buildAIQuestions(room.language_id, room.question_count);
+          }
+        } catch (genErr) {
+          io.to(code).emit('battle:error', { message: genErr.message || 'Gagal membuat soal' });
+          await pool.query('UPDATE battle_rooms SET status = ? WHERE id = ?', ['waiting', room.id]);
+          return;
         }
 
         await pool.query(
@@ -316,7 +362,7 @@ module.exports = function registerBattleSocket(io) {
     });
 
     // SUBMIT ANSWER
-    socket.on('battle:answer', async ({ code, order_index, answer }, cb) => {
+    socket.on('battle:answer', async ({ code, order_index, answer, time_left }, cb) => {
       try {
         const user = socketToUser[socket.id];
         const room = await getRoomFromDB(code);
@@ -335,21 +381,26 @@ module.exports = function registerBattleSocket(io) {
         const isCorrect = !!q.question_data.correct_answer &&
           normalize(answer) === normalize(q.question_data.correct_answer);
 
+        // Sisa waktu yang valid: 0 - time_per_question
+        const safeTimeLeft = Math.min(Math.max(Number(time_left) || 0, 0), room.time_per_question);
+        // Skor: 100 base + bonus sisa waktu (maks +time_per_question poin)
+        const points = isCorrect ? 100 + safeTimeLeft : 0;
+
         await pool.query(
-          'INSERT INTO battle_answers (room_id, user_id, order_index, user_answer, is_correct) VALUES (?,?,?,?,?)',
-          [room.id, user.id, order_index, answer || null, isCorrect ? 1 : 0]
+          'INSERT INTO battle_answers (room_id, user_id, order_index, user_answer, is_correct, time_left) VALUES (?,?,?,?,?,?)',
+          [room.id, user.id, order_index, answer || null, isCorrect ? 1 : 0, safeTimeLeft]
         );
 
         if (isCorrect) {
           await pool.query(
-            'UPDATE battle_participants SET score = score + 100, correct = correct + 1 WHERE room_id = ? AND user_id = ?',
-            [room.id, user.id]
+            'UPDATE battle_participants SET score = score + ?, correct = correct + 1 WHERE room_id = ? AND user_id = ?',
+            [points, room.id, user.id]
           );
         }
 
         const participants = await getParticipants(room.id);
         io.to(code).emit('battle:scores', { participants });
-        cb?.({ ok: true, is_correct: isCorrect });
+        cb?.({ ok: true, is_correct: isCorrect, points });
       } catch (err) {
         cb?.({ ok: false, error: err.message });
       }

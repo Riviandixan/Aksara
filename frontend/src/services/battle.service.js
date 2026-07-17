@@ -60,9 +60,9 @@ export function startBattle(code) {
 }
 
 /** Emit battle:answer and await the server ack callback. */
-export function submitAnswer(code, order_index, answer) {
+export function submitAnswer(code, order_index, answer, time_left) {
   return new Promise((resolve) => {
-    getSocket().emit('battle:answer', { code, order_index, answer }, (res) => {
+    getSocket().emit('battle:answer', { code, order_index, answer, time_left }, (res) => {
       resolve(res || {})
     })
   })

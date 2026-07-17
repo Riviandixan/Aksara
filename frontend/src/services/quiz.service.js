@@ -9,8 +9,10 @@ export const leaderboardService = {
 }
 
 export const quizService = {
-  getQuizzes: (levelId)           => api.get(`/quizzes/${levelId}`),
-  submit:     (levelId, answers)  => api.post(`/quizzes/${levelId}/submit`, { answers }),
+  getQuizzes: (levelId)                  => api.get(`/quizzes/${levelId}`),
+  question:   (levelId, orderIndex)      => api.get(`/quizzes/${levelId}/question`, { params: { order_index: orderIndex } }),
+  check:      (levelId, quizId, answer)  => api.post(`/quizzes/${levelId}/check`, { quiz_id: quizId, answer }),
+  submit:     (levelId, answers)         => api.post(`/quizzes/${levelId}/submit`, { answers }),
 }
 
 export const examService = {

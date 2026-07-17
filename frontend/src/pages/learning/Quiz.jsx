@@ -228,44 +228,77 @@ export default function Quiz() {
   const { user, updateUser } = useAuth()
   const { toast, showStreakToast, dismiss } = useStreakToast()
 
-  const [quizzes,    setQuizzes]    = useState([])
-  const [current,    setCurrent]    = useState(0)
-  const [answers,    setAnswers]    = useState({})
+  const [total,      setTotal]      = useState(0)
+  const [current,    setCurrent]    = useState(1)   // order_index, mulai dari 1
+  const [quiz,       setQuiz]       = useState(null) // soal saat ini saja
+  const [answers,    setAnswers]    = useState({})   // { [quiz_id]: answer }
   const [submitted,  setSubmitted]  = useState(false)
-  const [corrects,   setCorrects]   = useState({})
+  const [correct,    setCorrect]    = useState(null) // correct_answer soal saat ini
   const [result,     setResult]     = useState(null)
   const [loading,    setLoading]    = useState(true)
+  const [checking,   setChecking]   = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error,      setError]      = useState('')
 
+  // Load soal pertama (sekaligus generate jika belum ada)
   useEffect(() => {
     quizService.getQuizzes(levelId)
-      .then((res) => setQuizzes(res.data.data))
+      .then((res) => {
+        const { total, first_question } = res.data.data
+        setTotal(total)
+        setQuiz(first_question)
+      })
       .catch((err) => setError(err.response?.data?.message || 'Gagal memuat soal'))
       .finally(() => setLoading(false))
   }, [levelId])
 
-  const quiz       = quizzes[current]
-  const progress   = quizzes.length ? ((current + 1) / quizzes.length) * 100 : 0
-  const currentAns = answers[quiz?.id] || ''
+  const progress   = total ? (current / total) * 100 : 0
+  const currentAns = quiz ? (answers[quiz.id] || '') : ''
 
   const handleAnswer = useCallback((val) => {
-    if (submitted) return
+    if (submitted || !quiz) return
     setAnswers((prev) => ({ ...prev, [quiz.id]: val }))
   }, [quiz, submitted])
 
-  const handleCheck = () => {
-    if (!currentAns.trim()) return
-    setSubmitted(true)
-    setCorrects((prev) => ({ ...prev, [quiz.id]: quiz.question_data.correct_answer }))
+  const handleCheck = async () => {
+    if (!currentAns.trim() || checking) return
+    setChecking(true)
+    try {
+      const res = await quizService.check(levelId, quiz.id, currentAns)
+      const { correct_answer } = res.data.data
+      setSubmitted(true)
+      setCorrect(correct_answer)
+    } catch {
+      setError('Gagal memeriksa jawaban')
+    } finally {
+      setChecking(false)
+    }
   }
 
   const handleNext = async () => {
     setSubmitted(false)
-    if (current < quizzes.length - 1) { setCurrent((c) => c + 1); return }
+    setCorrect(null)
+
+    if (current < total) {
+      // Fetch soal berikutnya dari server
+      const nextIndex = current + 1
+      setLoading(true)
+      try {
+        const res = await quizService.question(levelId, nextIndex)
+        setQuiz(res.data.data)
+        setCurrent(nextIndex)
+      } catch (err) {
+        setError(err.response?.data?.message || 'Gagal memuat soal')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    // Soal terakhir — submit semua jawaban
     setSubmitting(true)
     try {
-      const payload = quizzes.map((q) => ({ quiz_id: q.id, answer: answers[q.id] || '' }))
+      const payload = Object.entries(answers).map(([quiz_id, answer]) => ({ quiz_id: Number(quiz_id), answer: answer || '' }))
       const res  = await quizService.submit(levelId, payload)
       const data = res.data.data
       updateUser({ xp: data.user.xp, streak: data.user.streak })
@@ -277,9 +310,15 @@ export default function Quiz() {
   }
 
   const handleRetry = () => {
-    setAnswers({}); setSubmitted(false); setCorrects({})
-    setResult(null); setCurrent(0); setLoading(true)
-    quizService.getQuizzes(levelId).then((res) => setQuizzes(res.data.data)).finally(() => setLoading(false))
+    setAnswers({}); setSubmitted(false); setCorrect(null)
+    setResult(null); setCurrent(1); setLoading(true)
+    quizService.getQuizzes(levelId)
+      .then((res) => {
+        const { total, first_question } = res.data.data
+        setTotal(total)
+        setQuiz(first_question)
+      })
+      .finally(() => setLoading(false))
   }
 
   if (loading) return (
@@ -324,9 +363,9 @@ export default function Quiz() {
               {/* Header */}
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-extrabold text-black">Soal {current + 1}</span>
+                  <span className="text-xs font-extrabold text-black">Soal {current}</span>
                   <span className="text-xs text-gray-300">/</span>
-                  <span className="text-xs font-bold text-gray-400">{quizzes.length}</span>
+                  <span className="text-xs font-bold text-gray-400">{total}</span>
                 </div>
                 <span className={cn(
                   'text-xs font-extrabold px-2.5 py-1 rounded-full border-2 border-black',
@@ -346,21 +385,21 @@ export default function Quiz() {
               </div>
 
               <div className="min-h-[200px] mb-6">
-                {quiz?.type === 'multiple_choice' && <MultipleChoice data={quiz.question_data} answer={currentAns} onAnswer={handleAnswer} submitted={submitted} correct={corrects[quiz.id]} />}
-                {quiz?.type === 'translate'       && <Translate      data={quiz.question_data} answer={currentAns} onAnswer={handleAnswer} submitted={submitted} correct={corrects[quiz.id]} />}
-                {quiz?.type === 'word_arrange'    && <WordArrange     data={quiz.question_data} answer={currentAns} onAnswer={handleAnswer} submitted={submitted} correct={corrects[quiz.id]} />}
+                {quiz?.type === 'multiple_choice' && <MultipleChoice data={quiz.question_data} answer={currentAns} onAnswer={handleAnswer} submitted={submitted} correct={correct} />}
+                {quiz?.type === 'translate'       && <Translate      data={quiz.question_data} answer={currentAns} onAnswer={handleAnswer} submitted={submitted} correct={correct} />}
+                {quiz?.type === 'word_arrange'    && <WordArrange     data={quiz.question_data} answer={currentAns} onAnswer={handleAnswer} submitted={submitted} correct={correct} />}
               </div>
 
               {!submitted ? (
                 <button
                   className={cn(
                     'w-full h-11 rounded-xl font-extrabold text-sm border-2 border-black transition-all duration-150',
-                    currentAns.trim()
+                    currentAns.trim() && !checking
                       ? 'bg-black text-white shadow-[4px_4px_0px_#555] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#555] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none'
                       : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
                   )}
-                  disabled={!currentAns.trim()} onClick={handleCheck}>
-                  Periksa Jawaban
+                  disabled={!currentAns.trim() || checking} onClick={handleCheck}>
+                  {checking ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Periksa Jawaban'}
                 </button>
               ) : (
                 <button
@@ -368,7 +407,7 @@ export default function Quiz() {
                   disabled={submitting} onClick={handleNext}>
                   {submitting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : current < quizzes.length - 1 ? (
+                  ) : current < total ? (
                     <><span>Soal Berikutnya</span><ChevronRight className="w-4 h-4" /></>
                   ) : (
                     <><span>Lihat Hasil</span><Trophy className="w-4 h-4" /></>

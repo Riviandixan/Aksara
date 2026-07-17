@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   BarChart2, CheckCircle2, TrendingUp, Target,
-  Clock, HelpCircle, Globe,
+  Clock, HelpCircle, Swords, Trophy, Zap, Shield,
 } from 'lucide-react'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -104,11 +104,17 @@ export default function Analytics() {
 
   if (!data) return null
 
-  const { summary, scoreTrend, perLanguage, perType, weeklyActivity } = data
+  const { summary, scoreTrend, perLanguage, perType, weeklyActivity, battleSummary, battleTrend, battleHistory } = data
 
   const trendData = scoreTrend.map((d) => ({
     date: new Date(d.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
     score: d.avg_score,
+  }))
+
+  const battleTrendData = battleTrend.map((d) => ({
+    date: new Date(d.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+    score: d.avg_score,
+    battles: d.battles,
   }))
 
   const langData = perLanguage.map((d) => ({
@@ -209,7 +215,7 @@ export default function Analytics() {
 
         {/* Aktivitas Mingguan */}
         <SectionTitle>Aktivitas Minggu Ini</SectionTitle>
-        <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] p-5">
+        <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] p-5 mb-8">
           {weeklyActivity.length === 0 ? (
             <p className="text-sm text-gray-400 font-medium text-center py-8">Belum ada aktivitas minggu ini</p>
           ) : (
@@ -230,6 +236,78 @@ export default function Analytics() {
             </div>
           )}
         </div>
+
+        {/* Battle */}
+        <SectionTitle>Battle Mode</SectionTitle>
+
+        {battleSummary.total_battles === 0 ? (
+          <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] p-8 text-center mb-8">
+            <Swords className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="font-extrabold text-black">Belum pernah battle</p>
+            <p className="text-sm text-gray-400 mt-1">Tantang pemain lain untuk melihat statistik battle kamu</p>
+          </div>
+        ) : (
+          <>
+            {/* Battle stat cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <StatCard icon={Swords}       label="Total Battle"  value={battleSummary.total_battles} bg="bg-violet-100" iconColor="text-violet-600" />
+              <StatCard icon={Trophy}       label="Menang"        value={battleSummary.total_wins}    bg="bg-yellow-100" iconColor="text-yellow-600" />
+              <StatCard icon={Zap}          label="Win Rate"      value={`${battleSummary.win_rate}%`} bg="bg-green-100"  iconColor="text-green-600" />
+              <StatCard icon={Shield}       label="Akurasi"       value={`${battleSummary.accuracy}%`} bg="bg-blue-100"   iconColor="text-blue-600" />
+            </div>
+
+            {/* Battle tren skor */}
+            <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] p-5 mb-4">
+              <p className="font-extrabold text-black mb-4">Tren Skor Battle (30 Hari)</p>
+              {battleTrendData.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">Belum ada data</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={battleTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fontWeight: 600 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v, n) => [n === 'score' ? `${v} pts` : v, n === 'score' ? 'Rata-rata Skor' : 'Battle']} />
+                    <Line type="monotone" dataKey="score" stroke="#7C3AED" strokeWidth={3} dot={{ r: 4, fill: '#7C3AED' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Riwayat battle */}
+            <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] overflow-hidden mb-8">
+              <div className="px-5 py-3 border-b-2 border-black bg-violet-50 flex items-center gap-2">
+                <Swords className="w-4 h-4 text-violet-600" />
+                <p className="font-extrabold text-sm text-black">Riwayat Battle Terakhir</p>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {battleHistory.map((b, i) => (
+                  <div key={i} className="flex items-center gap-3 px-5 py-3">
+                    <div className={cn(
+                      'w-9 h-9 rounded-xl border-2 border-black flex items-center justify-center font-extrabold text-sm shrink-0',
+                      b.rank === 1 ? 'bg-yellow-300 text-black' : b.rank === 2 ? 'bg-gray-200 text-black' : 'bg-orange-100 text-black'
+                    )}>
+                      {b.rank === 1 ? '🥇' : b.rank === 2 ? '🥈' : b.rank === 3 ? '🥉' : `#${b.rank}`}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm text-black truncate">
+                        {b.language_name || 'Paket Soal'}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(b.finished_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {' · '}{b.total_players} pemain
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-extrabold text-sm text-black">{b.score} pts</p>
+                      <p className="text-xs text-gray-400">{b.correct}/{b.question_count} benar</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
       </div>
     </div>
