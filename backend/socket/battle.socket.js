@@ -36,35 +36,36 @@ async function buildAIQuestions(languageId, count) {
   const [[lang]] = await pool.query('SELECT name FROM languages WHERE id = ?', [languageId]);
   if (!lang) throw new Error('Language not found');
 
-  const prompt = `
-You are a competitive quiz generator for ${lang.name} learners.
-Generate exactly ${count} multiple choice questions for a BATTLE/COMPETITION mode — questions must be CHALLENGING and varied.
+  const scriptNote = {
+    Japanese: 'Kanji and Kana (e.g. 私は毎日学校に行きます)',
+    Korean:   'Hangul (e.g. 저는 매일 학교에 갑니다)',
+    Chinese:  'Hanzi (e.g. 我每天去学校)',
+    Russian:  'Cyrillic (e.g. Я каждый день хожу в школу)',
+  }[lang.name] || `${lang.name} native script`;
 
-Return a JSON object with key "questions" containing an array of exactly ${count} objects.
-Each object must have this exact structure:
+  const prompt = `
+Generate exactly ${count} ${lang.name}-to-Indonesian translation quiz questions.
+
+Return ONLY a JSON object: { "questions": [ ...${count} items... ] }
+
+Each item MUST follow this EXACT structure — no deviations:
 {
-  "order_index": <number starting from 1>,
+  "order_index": 1,
   "type": "multiple_choice",
   "question_data": {
-    "question": "<a ${lang.name} sentence or phrase using actual ${lang.name} script/characters>",
-    "options": ["<option1 in Indonesian>", "<option2 in Indonesian>", "<option3 in Indonesian>", "<option4 in Indonesian>"],
-    "correct_answer": "<the correct Indonesian translation, must exactly match one of the options>"
+    "question": "<REQUIRED: a sentence written in ${lang.name} native script — ${scriptNote}>",
+    "options": ["<Indonesian translation A>", "<Indonesian translation B>", "<Indonesian translation C>", "<Indonesian translation D>"],
+    "correct_answer": "<must be one of the 4 options above, exact match>"
   }
 }
 
-Rules:
-- Use actual ${lang.name} characters (Hangul for Korean, Kanji/Kana for Japanese, Cyrillic for Russian, Hanzi for Chinese, etc). NEVER use romanization.
-- NEVER leave the "question" field empty. It MUST contain actual ${lang.name} script/characters.
-- NEVER use single basic vocabulary words (e.g. happy, cat, eat). Always use full sentences or meaningful phrases.
-- Questions must be CHALLENGING: use sentences with grammar nuance, similar-sounding words, or context-dependent meaning.
-- The 4 options must be DECEPTIVE — all plausible translations, only one is correct. Avoid obviously wrong options.
-- Mix question styles across the ${count} questions:
-  * Grammar-based (e.g. tense, particles, sentence structure)
-  * Context/nuance (e.g. formal vs informal, similar phrases with different meanings)
-  * Idioms or common expressions
-  * Longer sentences (8-15 words)
-- correct_answer must exactly match one of the 4 options (same spelling, same case).
-- No empty strings anywhere.
+CRITICAL RULES:
+1. "question" field = ${lang.name} sentence using NATIVE SCRIPT ONLY. NEVER empty. NEVER romanization. NEVER Indonesian.
+2. "options" = 4 Indonesian translations. All plausible, only one correct.
+3. "correct_answer" = exact copy of the correct option string.
+4. Use full sentences (6-15 words), not single vocabulary words.
+5. Make options deceptive — similar meaning, different nuance.
+6. No empty strings in any field.
 `.trim();
 
   let arr;
@@ -252,7 +253,7 @@ module.exports = function registerBattleSocket(io) {
     try {
       const [[user]] = await pool.query('SELECT id, username, avatar_url FROM users WHERE id = ?', [socket.userId]);
       if (!user) { socket.disconnect(); return; }
-      socketToUser[socket.id] = user;
+      socketToUser[socket.id] = user; 
     } catch {
       socket.disconnect(); return;
     }

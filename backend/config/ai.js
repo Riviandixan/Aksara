@@ -37,6 +37,7 @@ async function generateContentRaw(prompt) {
   const completion = await getClient().chat.completions.create({
     model:       'llama-3.3-70b-versatile',
     temperature: 0.7,
+    max_tokens:  4096,
     messages: [
       {
         role: 'system',
@@ -49,6 +50,7 @@ async function generateContentRaw(prompt) {
   let text = completion.choices[0].message.content.trim();
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
+  console.log('[AI] generateContentRaw finish_reason:', completion.choices[0].finish_reason);
   return { response: { text: () => text } };
 }
 
