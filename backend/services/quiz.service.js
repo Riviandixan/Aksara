@@ -1,8 +1,11 @@
-const { pool }            = require('../config/db');
+const { pool } = require('../config/db');
 const { generateContentRaw } = require('../config/ai');
+const { checkAchievements } = require('./achievement.service');
+const { push } = require('./notification.service');
+const { pushFeed } = require('./follow.service');
 
-const XP_PER_CORRECT  = 10;
-const PASS_THRESHOLD  = 70; // % minimum untuk unlock level berikutnya
+const XP_PER_CORRECT = 10;
+const PASS_THRESHOLD = 70; // % minimum untuk unlock level berikutnya
 
 // --- Prompt builder ---
 function buildQuizPrompt(levelTitle, languageName, baseLevel) {
@@ -209,15 +212,15 @@ async function submitAnswers(userId, levelId, answers) {
 
   let correct = 0;
   const results = answers.map(({ quiz_id, answer }) => {
-    const expected  = quizMap[quiz_id];
+    const expected = quizMap[quiz_id];
     const isCorrect = !!expected && normalize(answer) === normalize(expected);
     if (isCorrect) correct++;
     return { quiz_id, is_correct: isCorrect, correct_answer: quizMap[quiz_id] };
   });
 
-  const score   = Math.round((correct / quizzes.length) * 100);
+  const score = Math.round((correct / quizzes.length) * 100);
   const xpEarned = correct * XP_PER_CORRECT;
-  const passed  = score >= PASS_THRESHOLD;
+  const passed = score >= PASS_THRESHOLD;
 
   // Simpan progress + update user XP & streak dalam transaksi
   let nextUnlocked = false;
@@ -305,6 +308,36 @@ async function submitAnswers(userId, levelId, answers) {
     [userId]
   );
 
+  const newAchievements = await checkAchievements(userId);
+
+  // Push ke activity feed followers
+  if (passed) {
+    pushFeed(userId, 'level_complete', {
+      level_title:   level.title,
+      language_code: level.language_code,
+      score,
+      xp_earned: xpEarned,
+    }).catch(() => {});
+  }
+
+  await push(userId, {
+    type:    'quiz_complete',
+    title:   passed ? 'Level Selesai! 🎉' : 'Kuis Selesai',
+    message: passed
+      ? `Kamu lulus "${level.title}" dengan skor ${score}% dan mendapat +${xpEarned} XP!`
+      : `Kamu menyelesaikan "${level.title}" dengan skor ${score}%. Coba lagi untuk lulus!`,
+    icon: passed ? 'Trophy' : 'BookOpen',
+  });
+
+  if (nextUnlocked) {
+    await push(userId, {
+      type:    'level_up',
+      title:   'Level Baru Terbuka! 🔓',
+      message: 'Level berikutnya di jalur belajarmu sudah bisa dimulai. Terus semangat!',
+      icon:    'Zap',
+    });
+  }
+
   return {
     score,
     correct,
@@ -315,6 +348,7 @@ async function submitAnswers(userId, levelId, answers) {
     all_completed: passed && !nextUnlocked,
     user: userRows[0],
     results,
+    new_achievements: newAchievements,
   };
 }
 

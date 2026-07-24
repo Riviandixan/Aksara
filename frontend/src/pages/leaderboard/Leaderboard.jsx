@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { Flame, Zap, Crown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
@@ -56,7 +57,7 @@ function PodiumCard({ entry, delay = 0 }) {
       )}
 
       {/* Avatar */}
-      <div className={cn(
+      <Link to={`/profile/${entry.username}`} className={cn(
         'relative rounded-full overflow-hidden border-4 shrink-0 transition-transform duration-300 hover:scale-105',
         cfg.avatarSize,
         cfg.avatarBorder,
@@ -66,7 +67,7 @@ function PodiumCard({ entry, delay = 0 }) {
         {entry.isMe && (
           <div className="absolute inset-0 rounded-full ring-2 ring-[#58CC02] ring-offset-1" />
         )}
-      </div>
+      </Link>
 
       {/* Medal badge */}
       <div className={cn(
@@ -77,12 +78,15 @@ function PodiumCard({ entry, delay = 0 }) {
       </div>
 
       {/* Username */}
-      <p className={cn(
-        'font-extrabold truncate max-w-[90px] text-center text-xs mt-0.5',
-        entry.isMe ? 'text-[#58CC02]' : 'text-black'
-      )}>
+      <Link
+        to={`/profile/${entry.username}`}
+        className={cn(
+          'font-extrabold truncate max-w-[90px] text-center text-xs mt-0.5 hover:underline',
+          entry.isMe ? 'text-[#58CC02]' : 'text-black'
+        )}
+      >
         {entry.username}
-      </p>
+      </Link>
       {entry.isMe && (
         <span className="text-[9px] font-extrabold bg-[#58CC02] text-white px-1.5 py-0.5 rounded-full border border-black mt-0.5">Kamu 👈</span>
       )}
@@ -131,16 +135,16 @@ function LeaderRow({ entry }) {
       </div>
 
       {/* Avatar */}
-      <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-black shrink-0 shadow-[2px_2px_0px_#000]">
+      <Link to={`/profile/${entry.username}`} className="w-8 h-8 rounded-full overflow-hidden border-2 border-black shrink-0 shadow-[2px_2px_0px_#000] hover:scale-110 transition-transform">
         <img src={entry.avatar_url} alt={entry.username} className="w-full h-full object-cover" />
-      </div>
+      </Link>
 
       {/* Name */}
       <div className="flex-1 min-w-0">
-        <p className={cn('text-sm font-extrabold truncate', entry.isMe ? 'text-[#58CC02]' : 'text-black')}>
+        <Link to={`/profile/${entry.username}`} className={cn('text-sm font-extrabold truncate hover:underline block', entry.isMe ? 'text-[#58CC02]' : 'text-black')}>
           {entry.username}
           {entry.isMe && <span className="ml-2 text-[10px] font-extrabold bg-[#58CC02] text-white px-1.5 py-0.5 rounded-full border border-black">Kamu</span>}
-        </p>
+        </Link>
       </div>
 
       {/* Streak */}

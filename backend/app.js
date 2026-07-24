@@ -21,6 +21,10 @@ app.use('/api/history',        require('./routes/history.routes'));
 app.use('/api/analytics',      require('./routes/analytics.routes'));
 app.use('/api/exam',           require('./routes/exam.routes'));
 app.use('/api/battle',         require('./routes/battle.routes'));
+app.use('/api/notifications',  require('./routes/notification.routes'));
+app.use('/api/achievements',   require('./routes/achievement.routes'));
+app.use('/api/profile',        require('./routes/profile.routes'));
+app.use('/api/social',         require('./routes/follow.routes'));
 
 // --- 404 Handler ---
 app.use((_req, res) => res.status(404).json({ success: false, message: 'Route not found' }));

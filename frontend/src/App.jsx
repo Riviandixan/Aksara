@@ -24,6 +24,8 @@ import CreatePackage from '@/pages/quiz-packages/CreatePackage'
 import PackageDetail from '@/pages/quiz-packages/PackageDetail'
 import PackageQuiz from '@/pages/quiz-packages/PackageQuiz'
 import Battle from '@/pages/battle/Battle'
+import Achievements from '@/pages/achievements/Achievements'
+import PublicProfile from '@/pages/profile/PublicProfile'
 
 function App() {
   return (
@@ -54,7 +56,9 @@ function App() {
             <Route path="/quiz-packages/:id/play" element={<PackageQuiz />} />
             <Route path="/exam" element={<Exam />} />
             <Route path="/battle" element={<Battle />} />
+            <Route path="/achievements" element={<Achievements />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/profile/:username" element={<PublicProfile />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/login" replace />} />

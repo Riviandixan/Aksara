@@ -1,5 +1,7 @@
 const { pool }            = require('../config/db');
 const { generateContent } = require('../config/ai');
+const { checkAchievements } = require('./achievement.service');
+const { push }              = require('./notification.service');
 
 const EXAM_QUESTIONS  = 15;
 const XP_PER_CORRECT  = 10;
@@ -175,7 +177,7 @@ async function submitExam(userId, { attempt_id, answers, time_taken }) {
         `INSERT INTO session_answers (session_id, question_ref_id, question_type, question_data, user_answer, correct_answer, is_correct) VALUES ?`,
         [answerRows]
       );
-    }
+    }  
 
     // Hapus attempt setelah submit
     await conn.query('DELETE FROM exam_attempts WHERE id = ?', [attempt_id]);
@@ -187,7 +189,17 @@ async function submitExam(userId, { attempt_id, answers, time_taken }) {
   }
 
   const [userRows] = await pool.query('SELECT xp, streak FROM users WHERE id = ?', [userId]);
-  return { score, correct_count: correctCount, total, xp_earned: xpEarned, grade, passed: score >= 60, evaluations, user: userRows[0] };
+  const newAchievements = await checkAchievements(userId);
+
+  const gradeEmoji = { A: '🏆', B: '🥈', C: '🥉', D: '📝', E: '😅' };
+  await push(userId, {
+    type:    'exam_complete',
+    title:   `Ujian Selesai! Nilai ${grade} ${gradeEmoji[grade] || ''}`,
+    message: `Ujian ${langRows[0].name} selesai. Skor: ${score}% (${correctCount}/${total} benar) · +${xpEarned} XP`,
+    icon:    'GraduationCap',
+  });
+
+  return { score, correct_count: correctCount, total, xp_earned: xpEarned, grade, passed: score >= 60, evaluations, user: userRows[0], new_achievements: newAchievements };
 }
 
 async function getQuestion(userId, attemptId, orderIndex) {

@@ -1,11 +1,14 @@
-import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, BookOpen, Globe, Trophy, Settings,
-  LogOut, ChevronLeft, ChevronRight, Flame, Zap, Sparkles, FolderOpen, History, BarChart2, GraduationCap, Swords,
+  LayoutDashboard, Globe, Trophy, Settings,
+  LogOut, ChevronLeft, ChevronRight, Flame, Zap, Sparkles, FolderOpen, History, BarChart2, GraduationCap, Swords, Medal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
+import { achievementService } from '@/services/achievement.service'
+import { getRank } from '@/lib/rank'
+import NotificationBell from '@/components/NotificationBell'
 
 const NAV_ITEMS = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Beranda', section: 'main' },
@@ -15,14 +18,24 @@ const NAV_ITEMS = [
   { to: '/battle', icon: Swords, label: 'Battle Room', section: 'main' },
   { to: '/history', icon: History, label: 'Riwayat', section: 'main' },
   { to: '/analytics', icon: BarChart2, label: 'Analitik', section: 'main' },
+  { to: '/achievements', icon: Medal, label: 'Pencapaian', section: 'main' },
   { to: '/leaderboard', icon: Trophy, label: 'Papan Peringkat', section: 'main' },
   { to: '/settings', icon: Settings, label: 'Pengaturan', section: 'bottom' },
 ]
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [unlockedCount, setUnlockedCount] = useState(0)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    achievementService.getAll()
+      .then((res) => setUnlockedCount(res.data.data.filter((a) => a.unlocked).length))
+      .catch(() => { })
+  }, [user?.xp])
+
+  const rank = getRank(user?.xp ?? 0, unlockedCount)
 
   return (
     <aside
@@ -57,7 +70,8 @@ export default function Sidebar() {
 
       {/* Avatar + Stats */}
       <div className={cn(
-        'mx-3 mb-4 p-3 rounded-xl bg-white border-2 border-black shadow-[3px_3px_0px_#000] transition-all duration-200',
+        'mx-3 mb-4 p-3 rounded-xl border-2 transition-all duration-200',
+        rank.card, rank.border, rank.shadow,
         collapsed && 'mx-2 p-2'
       )}>
         <div className={cn('flex items-center gap-3', collapsed && 'justify-center')}>
@@ -69,10 +83,21 @@ export default function Sidebar() {
             <img src={user?.avatar_url} alt="avatar" className="w-full h-full" />
           </div>
           <div className={cn('overflow-hidden transition-all duration-200', collapsed ? 'w-0 opacity-0' : 'flex-1 opacity-100')}>
-            <p className="font-bold text-sm text-black truncate">{user?.username}</p>
+            <Link to={`/profile/${user?.username}`} className="font-bold text-sm text-black truncate hover:underline block">{user?.username}</Link>
             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
           </div>
         </div>
+
+        {/* Rank badge */}
+        {!collapsed && (
+          <div className={cn(
+            'mt-2 flex items-center gap-1 px-2 py-1 rounded-lg border-2 text-[10px] font-extrabold w-fit',
+            rank.badge
+          )}>
+            <rank.Icon className={cn('w-3 h-3', rank.iconColor)} />
+            <span>{rank.label}</span>
+          </div>
+        )}
 
         {/* XP & Streak */}
         <div className={cn(
@@ -109,6 +134,8 @@ export default function Sidebar() {
         {NAV_ITEMS.filter((i) => i.section === 'bottom').map((item) => (
           <NavItem key={item.to} item={item} collapsed={collapsed} />
         ))}
+
+        <NotificationBell collapsed={collapsed} />
 
         {/* Logout */}
         <button

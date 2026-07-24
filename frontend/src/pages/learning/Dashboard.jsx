@@ -2,13 +2,17 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Flame, Zap, BookOpen, ChevronRight, ChevronDown, ChevronUp,
-  Sparkles, Globe, Trophy, Target, Languages,
+  Sparkles, Globe, Trophy, Target, Languages, Medal,
+  BatteryMedium, BatteryFull, Crown, CalendarCheck, MapPin, Map,
+  ClipboardList, GraduationCap, Swords, Shield, Globe2, Lock, Users,
 } from 'lucide-react'
 import { Skeleton } from '@/components/Skeleton'
 import { useAuth }  from '@/hooks/useAuth'
 import { learningPathService } from '@/services/learning.service'
 import { authService } from '@/services/auth.service'
 import { leaderboardService } from '@/services/quiz.service'
+import { achievementService } from '@/services/achievement.service'
+import { followService } from '@/services/follow.service'
 import { cn } from '@/lib/utils'
 
 // ── Stat Card ────────────────────────────────────────────────
@@ -70,7 +74,90 @@ function PathCard({ path, onClick }) {
   )
 }
 
-const RANK_EMOJI = ['🥇', '🥈', '🥉']
+const ICON_MAP = {
+  Zap, BatteryMedium, BatteryFull, Crown, Flame, CalendarCheck, Trophy,
+  MapPin, BookOpen, Map, ClipboardList, GraduationCap, Swords, Medal, Shield, Globe, Globe2,
+}
+
+const ICON_COLOR = {
+  xp: 'text-yellow-500', streak: 'text-orange-500', level: 'text-violet-600',
+  exam: 'text-blue-600', battle: 'text-red-500', language: 'text-green-600',
+}
+
+const RANK_ICONS = [Trophy, Medal, Shield]
+
+// ── Feed Config ──────────────────────────────────────────────
+const FEED_CONFIG = {
+  level_complete: { bg: 'bg-violet-100', icon: BookOpen,  iconColor: 'text-violet-600', label: (d) => `menyelesaikan level "${d.level_title}" (+${d.xp_earned} XP)` },
+  battle_win:     { bg: 'bg-yellow-100', icon: Trophy,    iconColor: 'text-yellow-600', label: (d) => `memenangkan battle dengan skor ${d.score}! 🏆` },
+  battle_finish:  { bg: 'bg-red-100',   icon: Swords,    iconColor: 'text-red-500',    label: (d) => `selesai battle peringkat #${d.rank} dari ${d.total_players} pemain` },
+}
+
+function timeAgo(dateStr) {
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000)
+  if (diff < 60)   return 'baru saja'
+  if (diff < 3600) return `${Math.floor(diff / 60)} mnt lalu`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} jam lalu`
+  return `${Math.floor(diff / 86400)} hari lalu`
+}
+
+// ── Friend Feed Widget ───────────────────────────────────────
+function FriendFeedWidget() {
+  const navigate = useNavigate()
+  const [feed, setFeed]       = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    followService.getFeed()
+      .then((res) => setFeed(res.data.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b-2 border-black bg-blue-200">
+        <Users className="w-5 h-5 text-black" />
+        <p className="text-sm font-extrabold text-black">Aktivitas Teman</p>
+      </div>
+      <div className="px-4 py-3 flex flex-col gap-2 max-h-64 overflow-y-auto">
+        {loading ? (
+          [...Array(3)].map((_, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <Skeleton className="w-7 h-7 rounded-full shrink-0" />
+              <Skeleton className="flex-1 h-8 rounded-xl" />
+            </div>
+          ))
+        ) : feed.length === 0 ? (
+          <div className="py-4 text-center">
+            <p className="text-xs font-bold text-gray-400">Belum ada aktivitas</p>
+            <p className="text-[10px] text-gray-300 mt-1">Ikuti teman dari leaderboard!</p>
+          </div>
+        ) : (
+          feed.slice(0, 10).map((item) => {
+            const cfg = FEED_CONFIG[item.type]
+            if (!cfg) return null
+            const FeedIcon = cfg.icon
+            return (
+              <div key={item.id} className="flex items-start gap-2">
+                <button onClick={() => navigate(`/profile/${item.username}`)} className="shrink-0">
+                  <img src={item.avatar_url} alt={item.username} className="w-7 h-7 rounded-full border-2 border-black object-cover hover:scale-110 transition-transform" />
+                </button>
+                <div className={cn('flex-1 rounded-xl px-3 py-2 border border-black/10', cfg.bg)}>
+                  <p className="text-[11px] font-bold text-black leading-snug">
+                    <button onClick={() => navigate(`/profile/${item.username}`)} className="font-extrabold hover:underline">{item.username}</button>
+                    {' '}{cfg.label(item.data)}
+                  </p>
+                  <p className="text-[10px] text-black/40 mt-0.5">{timeAgo(item.created_at)}</p>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ── Leaderboard Widget ───────────────────────────────────────
 function LeaderboardWidget() {
@@ -92,7 +179,12 @@ function LeaderboardWidget() {
       <div className="px-4 py-3 flex flex-col gap-1">
         {rows.map((u) => (
           <div key={u.rank} className={cn('flex items-center gap-3 p-2.5 rounded-xl transition-colors', u.isMe ? 'bg-yellow-50' : 'hover:bg-gray-50')}>
-            <span className="text-lg leading-none">{RANK_EMOJI[u.rank - 1] ?? `#${u.rank}`}</span>
+            <span className="w-5 flex items-center justify-center shrink-0">
+              {u.rank <= 3
+                ? (() => { const R = RANK_ICONS[u.rank - 1]; return <R className={cn('w-4 h-4', u.rank === 1 ? 'text-yellow-500' : u.rank === 2 ? 'text-gray-400' : 'text-orange-400')} /> })()
+                : <span className="text-xs font-bold text-gray-400">#{u.rank}</span>
+              }
+            </span>
             <span className="text-sm font-bold text-black flex-1 truncate">{u.username}{u.isMe && ' (kamu)'}</span>
             <div className="flex items-center gap-1 bg-yellow-100 border border-black rounded-full px-2 py-0.5">
               <Zap className="w-3 h-3 text-yellow-500" />
@@ -106,6 +198,58 @@ function LeaderboardWidget() {
                      hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none shadow-[2px_2px_0px_#000]
                      transition-all duration-150"
         >
+          Lihat semua →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Achievement Widget ──────────────────────────────────────
+function AchievementWidget() {
+  const navigate = useNavigate()
+  const [badges, setBadges] = useState([])
+
+  useEffect(() => {
+    achievementService.getAll()
+      .then((res) => setBadges(res.data.data))
+      .catch(() => {})
+  }, [])
+
+  const unlocked = badges.filter((b) => b.unlocked)
+  const recent   = unlocked.slice(-3).reverse()
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-black shadow-[4px_4px_0px_#000] overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b-2 border-black bg-violet-200">
+        <Medal className="w-5 h-5 text-black" />
+        <p className="text-sm font-extrabold text-black">Pencapaian</p>
+        <span className="ml-auto text-xs font-extrabold bg-white border-2 border-black rounded-full px-2 py-0.5">
+          {unlocked.length}/{badges.length}
+        </span>
+      </div>
+      <div className="px-4 py-3">
+        {recent.length === 0 ? (
+          <p className="text-xs font-medium text-gray-400 text-center py-3">Belum ada badge. Mulai belajar!</p>
+        ) : (
+          <div className="flex gap-2 mb-3">
+            {recent.map((b) => {
+              const BIcon = ICON_MAP[b.icon] ?? Medal
+              const color = ICON_COLOR[b.category] ?? 'text-gray-500'
+              return (
+                <div key={b.id} title={b.title}
+                  className="w-10 h-10 rounded-xl bg-white border-2 border-black flex items-center justify-center shadow-[2px_2px_0px_#000]">
+                  <BIcon className={cn('w-5 h-5', color)} />
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <button
+          onClick={() => navigate('/achievements')}
+          className="w-full text-xs font-bold text-black bg-gray-100 border-2 border-black rounded-xl py-2
+                     hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none shadow-[2px_2px_0px_#000]
+                     transition-all duration-150">
           Lihat semua →
         </button>
       </div>
@@ -292,6 +436,8 @@ export default function Dashboard() {
           {/* RIGHT — Widgets */}
           <div className="flex flex-col gap-4">
             <DailyTargetWidget dailyXp={dailyXp} />
+            <FriendFeedWidget />
+            <AchievementWidget />
             <LeaderboardWidget />
           </div>
 

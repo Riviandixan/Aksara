@@ -1,6 +1,9 @@
 const { pool }            = require('../config/db');
 const { generateContentRaw } = require('../config/ai');
 const jwt                 = require('jsonwebtoken');
+const { push }            = require('../services/notification.service');
+const { checkAchievements } = require('../services/achievement.service');
+const { pushFeed }        = require('../services/follow.service');
 
 const roomTimers   = {};  // code → timeout handle
 const roomSockets  = {};  // code → Set<socketId>
@@ -231,7 +234,34 @@ async function finishBattle(io, code, roomId) {
     conn.release();
   }
 
+  // Cek achievement untuk semua peserta
+  for (const p of participants) {
+    checkAchievements(p.user_id).catch(() => {});
+  }
+
   const final = await getParticipants(roomId);
+
+  // Kirim notifikasi hasil battle ke setiap peserta
+  await Promise.all(final.map((p, i) => {
+    const rank     = i + 1;
+    const rankText = rank === 1 ? '🥇 Juara 1' : rank === 2 ? '🥈 Juara 2' : rank === 3 ? '🥉 Juara 3' : `#${rank}`;
+
+    // Push ke activity feed
+    pushFeed(p.user_id, rank === 1 ? 'battle_win' : 'battle_finish', {
+      rank,
+      score:        p.score,
+      correct:      p.correct ?? 0,
+      total_players: final.length,
+    }).catch(() => {});
+
+    return push(p.user_id, {
+      type:    'battle_result',
+      title:   rank === 1 ? 'Kamu Menang Battle! 🏆' : 'Battle Selesai',
+      message: `${rankText} · Skor: ${p.score} pts · ${p.correct ?? 0} jawaban benar`,
+      icon:    'Swords',
+    });
+  }));
+
   io.to(code).emit('battle:result', { participants: final });
 }
 
